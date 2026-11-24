@@ -42,11 +42,11 @@ button{transition:transform .12s,filter .15s}button:hover{filter:brightness(1.08
 <button id="fs" aria-label="Fullscreen" onclick="try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}catch(e){}">⛶</button>
 <div id="menu"><h1>CHESS <b>MODS</b></h1>
 <div class="armies"><section><h2>White army</h2><div class="grid" id="gw"></div></section><section><h2>Black army</h2><div class="grid" id="gb"></div></section></div>
-<div class="opts"><label>Time <select id="time"><option value="1">1 min<option value="3">3 min<option value="5" selected>5 min<option value="10">10 min</select></label>
+<div class="opts"><label>Time <select id="time"><option value="1">1 min<option value="3">3 min<option value="5" selected>5 min<option value="10">10 min<option value="20">20 min<option value="30">30 min</select></label>
 <label>Bot <select id="lvl"><option value="1">Easy<option value="2" selected>Medium<option value="3">Hard</select></label><label><input type="checkbox" id="snd" checked> Sound</label></div>
 <div class="btns"><button onclick="go('local')">Local 2P</button><button onclick="go('bot')">Vs Bot (you = White)</button><button onclick="onlineMenu()">Online Room</button></div>
 <p id="note"></p></div>
-<div id="game" hidden><aside class="L" id="lc"></aside><div id="board"></div><aside class="R"><div id="status"></div><div id="log"></div><button onclick="menu()">Main menu</button></aside></div>
+<div id="game" hidden><aside class="L" id="lc"></aside><div id="board"></div><aside class="R"><div id="status"></div><small id="netinfo" style="color:var(--mute);min-height:16px"></small><div id="log"></div><button onclick="menu()">Main menu</button></aside></div>
 <div id="ov" class="modal" hidden></div>
 <div id="lobby" hidden><div id="badge"></div><h1>CHESS <b>MODS</b></h1>
 <div class="armies"><section><h2 id="lh-w"></h2><div class="grid" id="lg-w"></div></section><section><h2 id="lh-b"></h2><div class="grid" id="lg-b"></div></section></div>
@@ -54,6 +54,19 @@ button{transition:transform .12s,filter .15s}button:hover{filter:brightness(1.08
 <div id="promo" hidden></div>
 <script>
 const $=id=>document.getElementById(id);
+/* ===== NETWORK CONFIG =====
+ Signalling: default is the free public PeerJS server. For your own PeerJS server set SIGNAL={host:'your.host',port:443,path:'/',secure:true}.
+ TURN (needed when a direct connection is blocked by NAT/router): fill ONE of these, otherwise only STUN is used.
+  A) TURN_API: free Metered Open Relay account -> {app:'yourapp',key:'YOUR_TURN_CREDENTIAL_API_KEY'}
+  B) TURN_SERVERS: your own coturn or other provider -> [{urls:'turn:host:3478',username:'u',credential:'p'}] */
+const SIGNAL=null,TURN_API={app:'',key:''},TURN_SERVERS=[];
+const STUN=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}];
+let ICE=STUN.concat(TURN_SERVERS);
+(async()=>{if(TURN_API.app&&TURN_API.key){try{const r=await fetch(`https://${TURN_API.app}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN_API.key)}`);if(r.ok){const j=await r.json();if(Array.isArray(j))ICE=STUN.concat(TURN_SERVERS,j)}}catch(e){}}})();
+const hasTurn=()=>ICE.some(x=>/^turns?:/.test(String(x.urls)));
+function mkPeer(id){const p=new Peer(id,Object.assign({config:{iceServers:ICE,iceCandidatePoolSize:4},debug:1},SIGNAL||{}));
+ p.on('disconnected',()=>{if(!p.destroyed)try{p.reconnect()}catch(e){}});return p}
+
 const MODS=[['cl','Classic','Standard rules. Balanced, no weaknesses.','#f2cf66'],['bz','Berserkers','Pawns can also capture straight ahead. Weakness: no pawn double-step.','#e5533d'],
 ['sh','Shadow Clan','Knights also step 1 square any direction. Weakness: no castling.','#8b5cf6'],['fo','Fortress','Rooks also step 1 diagonally. Weakness: queen moves max 4 squares.','#7b8794'],
 ['sk','Sky Wardens','Pawns may step diagonally forward without capturing. Weakness: no en passant.','#38bdf8'],['ph','Phalanx','Pawns may step sideways. Weakness: bishops move max 3 squares.','#d4a52a'],
@@ -105,8 +118,8 @@ for(const m of G.lg){const v=-search(apply(G.s,m),d-1,-1e9,1e9)+Math.random()*(d
 if(best)commit(best,null)}
 const fmt=t=>{t=Math.max(0,Math.ceil(t));return(t/60|0)+':'+String(t%60).padStart(2,'0')};
 function beep(c){if(!$('snd').checked)return;try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type='triangle';o.frequency.value=c?200:320;g.gain.setValueAtTime(.12,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.12);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.13)}catch(e){}}
-function start(cfg,mode,me){MD={w:cfg.w,b:cfg.b};const s=init();G={s,mode,me,lvl:+$('lvl').value,tl:{w:cfg.time*60,b:cfg.time*60},sel:null,last:null,over:false,log:[],t0:Date.now()};
-flip=mode==='online'&&me==='b';G.lg=legal(s);$('lc').innerHTML='';$('menu').hidden=true;$('game').hidden=false;$('note').textContent='';G.msg=null;render()}
+function start(cfg,mode,me){MD={w:cfg.w,b:cfg.b};const s=init();G={s,mode,me,lvl:+$('lvl').value,tl:{w:cfg.time*60,b:cfg.time*60},sel:null,last:null,over:false,log:[],hist:[],t0:Date.now()};
+flip=mode==='online'&&me==='b';G.lg=legal(s);$('lc').innerHTML='';$('menu').hidden=true;$('game').hidden=false;$('note').textContent='';G.msg=null;if(mode==='online'&&NET){NET.last=Date.now();setTimeout(netInfo,1500);setTimeout(netInfo,6000)}render()}
 function go(mode){const cfg={w:sel.w,b:sel.b,time:+$('time').value};closeCh();
 start(cfg,mode,'w')}
 function closeCh(){try{NET&&NET.peer.destroy()}catch(e){}NET=null;CH=null}
@@ -115,41 +128,66 @@ function leave(auto,msg){if(L)clearInterval(L.iv);if(CH&&!auto)CH.postMessage({t
 function menu(){leave()}
 function ov(h){const o=$('ov');o.innerHTML=h?`<div class="box">${h}</div>`:'';o.hidden=!h}
 const wrap=()=>({postMessage:d=>{try{NET&&NET.gc&&NET.gc.send(d)}catch(e){}}});
-const gone=c=>c.on('close',()=>{if(NET&&NET.gc===c){NET.gc=null;onMsg({t:'leave'})}});
+const gone=c=>c.on('close',()=>{if(NET&&NET.gc===c){NET.gc=null;if(G&&G.mode==='online'&&!G.over)onDisc();else onMsg({t:'leave'})}});
+function hostConn(c){c.on('data',d=>{
+ if(d.t==='rejoin'&&G&&G.mode==='online'&&L&&L.role==='w'){const o=NET.gc;NET.gc=c;try{o&&o!==c&&o.close()}catch(e){}onMsg(d);return}
+ if(NET&&NET.gc===c)onMsg(d)});gone(c)}
+function resume(){if(G&&G.paused){G.paused=false;clearTimeout(G.dc);clearInterval(G.rj);G.t0=Date.now();if(NET)NET.last=Date.now();render();setTimeout(netInfo,1500)}}
+function onDisc(){if(!G||G.over||G.paused)return;G.paused=true;G.t0=Date.now();try{NET.gc&&NET.gc.close()}catch(e){}if(NET)NET.gc=null;
+ G.dc=setTimeout(()=>{if(G&&G.paused&&!G.over){const ok=NET&&NET.peer&&!NET.peer.disconnected&&!NET.peer.destroyed;clearInterval(G.rj);G.paused=false;end(ok?'Opponent did not return. You win':'Connection lost. Game ended');render()}},30000);
+ render();if(L&&L.role==='b')rejoinLoop()}
+function rejoinLoop(){clearInterval(G.rj);const at=()=>{if(!G||!G.paused||G.over){clearInterval(G&&G.rj);return}if(G.try&&Date.now()-G.try<6000)return;G.try=Date.now();let p=NET.peer;
+ const conn=()=>{const c=NET.peer.connect(NET.hostId,{reliable:true});c.on('open',()=>{if(!G||!G.paused){c.close();return}NET.gc=c;c.on('data',onMsg);gone(c);c.send({t:'rejoin'})})};
+ if(!p||p.destroyed){NET.peer=p=mkPeer();p.on('error',()=>{});p.on('open',conn)}else if(p.disconnected){p.once('open',conn);try{p.reconnect()}catch(e){}}else conn()};
+ G.rj=setInterval(at,2000);at()}
+async function netInfo(){const pc=NET&&NET.gc&&NET.gc.peerConnection;if(!pc||!$('netinfo'))return;try{const st=await pc.getStats();let sel=null;st.forEach(r=>{if(r.type==='transport'&&r.selectedCandidatePairId)sel=st.get(r.selectedCandidatePairId);if(!sel&&r.type==='candidate-pair'&&r.nominated&&r.state==='succeeded')sel=r});
+ if(sel){const a=st.get(sel.localCandidateId),b=st.get(sel.remoteCandidateId);$('netinfo').textContent=(a&&a.candidateType==='relay')||(b&&b.candidateType==='relay')?'Connection: via TURN relay':'Connection: direct (P2P)'}}catch(e){}}
 const noNet=()=>{$('note').textContent='Network library failed to load. Check your internet connection.';ov('')};
 function onlineMenu(){if(!window.Peer)return noNet();
 ov(`<h2>Online Room</h2><button onclick="newRoom()">New room</button><button onclick="joinMenu()">Join room</button><button class="ghost" onclick="ov('')">Cancel</button>`)}
 function joinMenu(){ov(`<h2>Join room</h2><label>Join to IP</label><div class="row"><input id="ip" inputmode="numeric" maxlength="5" placeholder="12345" autocomplete="off"><button onclick="joinIP()">Join</button></div><p id="ovn"></p><button onclick="speed()">Speed game</button><button class="ghost" onclick="onlineMenu()">Back</button>`)}
-function newRoom(){if(!window.Peer)return noNet();ov('');const code=rid(),peer=new Peer('chessmods-'+code);NET={peer,gc:null};CH=wrap();
+function newRoom(){if(!window.Peer)return noNet();ov('');const code=rid(),peer=mkPeer('chessmods-'+code);NET={peer,gc:null};CH=wrap();
 L={role:'w',mode:'room',code,arm:{w:'cl',b:'cl'},guest:false,time:+$('time').value,pending:true};
 peer.on('open',()=>{if(L)L.pending=false;showLobby()});
 peer.on('error',e=>{if(e.type==='unavailable-id'){closeCh();newRoom()}else leave(true,'Connection error. Try again.')});
 peer.on('connection',c=>{c.on('data',d=>{
  if(d.t==='join'&&NET.gc&&NET.gc!==c){c.send({t:'full',gid:d.gid});setTimeout(()=>c.close(),400);return}
- if(!NET.gc&&d.t==='join')NET.gc=c;if(NET.gc===c)onMsg(d)});gone(c)})}
+ if(!NET.gc&&d.t==='join'&&!G)NET.gc=c});hostConn(c)})}
 function joinIP(){if(!window.Peer)return noNet();const code=$('ip').value.trim();if(!/^\d{5}$/.test(code)){$('ovn').textContent='Enter a 5-digit IP.';return}
-closeCh();const gid=Math.random(),peer=new Peer();NET={peer,gc:null};CH=wrap();L={role:'b',mode:'room',code,arm:{w:'cl',b:'cl'},guest:true,gid,pending:true};$('ovn').textContent='Connecting…';
+closeCh();const gid=Math.random(),peer=mkPeer();NET={peer,gc:null,hostId:'chessmods-'+code};CH=wrap();L={role:'b',mode:'room',code,arm:{w:'cl',b:'cl'},guest:true,gid,pending:true};$('ovn').textContent='Connecting…';
 const fail=m=>{if(L&&L.gid===gid&&L.pending){closeCh();L=null;const n=$('ovn');if(n)n.textContent=m}};
 peer.on('error',e=>fail(e.type==='peer-unavailable'?'Room not found.':'Connection error.'));
 peer.on('open',()=>{const c=peer.connect('chessmods-'+code,{reliable:true});NET.gc=c;c.on('open',()=>c.send({t:'join',gid}));c.on('data',onMsg);gone(c)});
 setTimeout(()=>fail('Room not found.'),10000)}
 function speed(){if(!window.Peer)return noNet();const QID='chessmods-speed-queue';closeCh();
-L={role:null,mode:'speed',arm:{w:'cl',b:'cl'},time:+$('time').value,pending:true};
+L={role:null,mode:'speed',arm:{w:'cl',b:'cl'},time:20,pending:true};
 ov(`<h2>Speed game</h2><p>Searching for an opponent…</p><button class="ghost" onclick="cancelSpeed()">Cancel</button>`);
 const me=L,alive=()=>L===me&&L.pending;let paired=false;
-const q=new Peer(QID);NET={peer:q,gc:null};
-q.on('connection',c=>{c.on('data',d=>{if(d.t!=='q'||paired||!alive())return;paired=true;const gp=new Peer();
+const q=mkPeer(QID);NET={peer:q,gc:null};
+q.on('connection',c=>{c.on('data',d=>{if(d.t!=='q'||paired||!alive())return;paired=true;const gp=mkPeer();
  gp.on('open',id=>{c.send({t:'go',id});setTimeout(()=>q.destroy(),600)});
- gp.on('connection',g=>{if(!alive())return;NET={peer:gp,gc:g};CH=wrap();g.on('data',onMsg);gone(g);L.role='w';L.pending=false;ov('');showLobby()})})});
+ gp.on('connection',g=>{if(!alive()){hostConn(g);return}NET={peer:gp,gc:g};CH=wrap();hostConn(g);L.role='w';L.pending=false;ov('');showLobby()})})});
 q.on('error',e=>{if(!alive())return;if(e.type!=='unavailable-id'){closeCh();L=null;ov('');$('note').textContent='Connection error. Try again.';return}
- try{q.destroy()}catch(x){}const p=new Peer();NET={peer:p,gc:null};
+ try{q.destroy()}catch(x){}const p=mkPeer();NET={peer:p,gc:null};
  p.on('error',()=>{if(alive()){closeCh();setTimeout(()=>{if(L===me)speed()},900)}});
  p.on('open',()=>{const c=p.connect(QID,{reliable:true});c.on('open',()=>c.send({t:'q'}));
-  c.on('data',d=>{if(d.t!=='go'||!alive())return;c.close();const g=p.connect(d.id,{reliable:true});NET.gc=g;CH=wrap();
+  c.on('data',d=>{if(d.t!=='go'||!alive())return;c.close();NET.hostId=d.id;const g=p.connect(d.id,{reliable:true});NET.gc=g;CH=wrap();
    g.on('open',()=>{L.role='b';L.pending=false;ov('');showLobby()});g.on('data',onMsg);gone(g)})})});
 }
 function cancelSpeed(){closeCh();L=null;ov('')}
-function onMsg(d){if(d.t==='move'){if(G&&G.mode==='online'&&!G.over&&G.s.turn!==G.me)commit(d.m,d.pr,true);return}
+const sameMv=(a,b)=>a.f===b.f&&a.t===b.t&&!!a.cs===!!b.cs&&!!a.ep===!!b.ep;
+function onMsg(d){if(NET)NET.last=Date.now();if(d.t==='ping')return;
+if(d.t==='move'){if(!G||G.mode!=='online'||G.over||G.paused||G.s.turn===G.me)return;
+ if(d.n!==G.hist.length+1||!d.m){CH&&CH.postMessage({t:'req'});return}
+ const lm=G.lg.find(x=>sameMv(x,d.m));if(!lm){CH&&CH.postMessage({t:'req'});return}
+ const pr=(MD[G.s.turn]==='ti'?['r','n']:['q','r','b','n']).includes(d.pr)?d.pr:null;commit(lm,pr,true);
+ if(d.tl&&!G.over){G.tl={w:d.tl.w,b:d.tl.b};G.t0=Date.now()}return}
+if(d.t==='rejoin'&&G&&G.mode==='online'){resume();CH.postMessage({t:'hello',n:G.hist.length,tl:G.tl,r:'w'});return}
+if(d.t==='hello'&&G&&G.mode==='online'){resume();if(d.n>G.hist.length)CH.postMessage({t:'req'});else if(d.n===G.hist.length&&d.r==='w'&&d.tl)G.tl={w:d.tl.w,b:d.tl.b};if(d.r==='w')CH.postMessage({t:'hello',n:G.hist.length,r:'b'});return}
+if(d.t==='req'&&G&&G.mode==='online'){CH.postMessage({t:'state',hist:G.hist,tl:G.tl,over:G.over,msg:G.msg});return}
+if(d.t==='state'&&G&&G.mode==='online'&&Array.isArray(d.hist)&&d.hist.length>=G.hist.length){G.s=init();G.log=[];G.hist=[];G.last=null;
+ for(const x of d.hist){G.lg=legal(G.s);const lm=G.lg.find(y=>sameMv(y,x.m));if(!lm)break;commit(lm,x.pr,true,true)}
+ G.lg=legal(G.s);G.tl={w:d.tl.w,b:d.tl.b};G.t0=Date.now();G.over=!!d.over;G.msg=d.over?d.msg:null;G.sel=null;render();return}
 if(d.t==='leave'&&G&&G.mode==='online'&&!G.over){end('Opponent left. You win');render();return}
 if(!L||G)return;
 if(d.t==='join'&&L.role==='w'&&L.mode==='room'){if(L.guest){CH.postMessage({t:'full',gid:d.gid});return}L.guest=true;CH.postMessage({t:'welcome',gid:d.gid,arm:L.arm,time:L.time});renderLobby()}
@@ -166,36 +204,37 @@ for(const c of['w','b']){const g=$('lg-'+c),mine=c===L.role,here=c==='w'||L.gues
  MODS.forEach(m=>{const d=document.createElement('div');d.className='mc'+(L.arm[c]===m[0]?' on':'')+(mine&&!lock?'':' off');d.style.borderLeftColor=m[3];d.innerHTML=`<b style="color:${m[3]}">${m[1]}</b>${m[2]}`;if(mine)d.onclick=()=>pick(c,m[0]);g.appendChild(d)});
  $('lh-'+c).textContent=(sp?(c==='w'?'Player 1 · White':'Player 2 · Black'):(c==='w'?'Host · White':'Guest · Black'))+(mine?' (you)':here?'':' — waiting…')}
 const st=$('lstart');st.hidden=!(L.role==='w'&&!sp);st.disabled=!L.guest;
-$('lnote').textContent=sp?(L.left>0?`Game starts in ${L.left} s. Choose your army.`:'Starting…'):L.role==='w'?(L.guest?'Opponent joined. Choose your army, then press Start.':'Waiting for an opponent. Share the IP shown in the corner.'):'Choose your army. Waiting for the host to start…'}
+$('lnote').textContent=sp?(L.left>0?`Game starts in ${L.left} s (20 min each). Choose your army.`:'Starting…'):L.role==='w'?(L.guest?'Opponent joined. Choose your army, then press Start.':'Waiting for an opponent. Share the IP shown in the corner.'):'Choose your army. Waiting for the host to start…';if(!hasTurn())$('lnote').textContent+=' ⚠ No TURN server configured: some networks may fail to connect.'}
 function beginGame(){const cfg={w:L.arm.w,b:L.arm.b,time:L.time};CH.postMessage({t:'start',cfg});runStart(cfg)}
 function runStart(cfg){clearInterval(L.iv);$('lobby').hidden=true;start(cfg,'online',L.role)}
-function canHuman(){if(!G||G.over)return false;if(G.mode==='bot')return G.s.turn==='w';if(G.mode==='online')return G.s.turn===G.me;return true}
+function canHuman(){if(!G||G.over||G.paused)return false;if(G.mode==='bot')return G.s.turn==='w';if(G.mode==='online')return G.s.turn===G.me;return true}
 function click(i){if(!canHuman())return;const p=G.s.b[i];
 if(G.sel!=null){const m=G.lg.find(m=>m.f===G.sel&&m.t===i);if(m)return tryMove(m)}
 G.sel=p&&p[0]===G.s.turn?i:null;render()}
 function tryMove(m){const c=G.s.turn,r=m.t>>3;if(G.s.b[m.f][1]==='p'&&(r===0||r===7)){const op=MD[c]==='ti'?['r','n']:['q','r','b','n'],P=$('promo');P.innerHTML='';
  op.forEach(t=>{const b=document.createElement('button');b.textContent=GL[t]+'\uFE0E';b.onclick=()=>{P.hidden=true;commit(m,t)};P.appendChild(b)});P.hidden=false}else commit(m,null)}
-function commit(m,pr,remote){const s=G.s,cap=s.b[m.t]||m.ep;tick();G.s=apply(s,m,pr);G.last=[m.f,m.t];G.sel=null;
-const pc=s.b[m.f],tx=m.cs?(m.t>m.f?'O-O':'O-O-O'):(pc[1]==='p'?'':pc[1].toUpperCase())+sqn(m.f)+(cap?'x':'-')+sqn(m.t)+(pr?'='+pr.toUpperCase():'');G.log.push(tx);beep(cap);
-if(G.mode==='online'&&!remote&&CH)CH.postMessage({t:'move',m,pr});
+function commit(m,pr,remote,quiet){const s=G.s,cap=s.b[m.t]||m.ep;if(!quiet)tick();G.s=apply(s,m,pr);G.last=[m.f,m.t];G.sel=null;
+const pc=s.b[m.f],tx=m.cs?(m.t>m.f?'O-O':'O-O-O'):(pc[1]==='p'?'':pc[1].toUpperCase())+sqn(m.f)+(cap?'x':'-')+sqn(m.t)+(pr?'='+pr.toUpperCase():'');G.log.push(tx);G.hist.push({m,pr});if(!quiet)beep(cap);
+if(G.mode==='online'&&!remote&&CH)CH.postMessage({t:'move',n:G.hist.length,m,pr,tl:G.tl});
 G.lg=legal(G.s);const t=G.s.turn;
 if(!G.lg.length)end(inCheck(G.s,t)?`Checkmate. ${name(other(t))} wins`:'Stalemate. Draw');
-render();slideAnim(m);if(!G.over&&G.mode==='bot'&&t==='b')setTimeout(botMove,350)}
+if(quiet)return;render();slideAnim(m);if(!G.over&&G.mode==='bot'&&t==='b')setTimeout(botMove,350)}
 function slideAnim(m){if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;const B=$('board'),el=i=>B.children[flip?63-i:i];
 const mv=(a,b)=>{const pa=el(b).querySelector('.pz');if(!pa)return;const ra=el(a).getBoundingClientRect(),rb=el(b).getBoundingClientRect();pa.style.zIndex=5;
 pa.animate([{transform:`translate(${ra.left-rb.left}px,${ra.top-rb.top}px)`},{transform:'translate(0,0)'}],{duration:300,easing:'cubic-bezier(.22,.8,.24,1)'}).onfinish=()=>{pa.style.zIndex=''}};
 mv(m.f,m.t);if(m.cs){m.t>m.f?mv(m.t+1,m.t-1):mv(m.t-2,m.t+1)}}
 function end(msg){G.over=true;G.msg=msg}
-function tick(){if(!G||G.over||G.s.turn==null)return;const now=Date.now(),dt=(now-G.t0)/1000;G.t0=now;const t=G.s.turn;G.tl[t]-=dt;
+function tick(){if(!G||G.over||G.s.turn==null)return;if(G.paused){G.t0=Date.now();return}const now=Date.now(),dt=(now-G.t0)/1000;G.t0=now;const t=G.s.turn;G.tl[t]-=dt;
 if(G.tl[t]<=0){G.tl[t]=0;end(`${name(other(t))} wins on time`);render()}
 for(const c of['w','b']){const e=$('t-'+c);if(e)e.textContent=fmt(G.tl[c])}}
 setInterval(tick,200);
+setInterval(()=>{if(G&&G.mode==='online'&&!G.over&&!G.paused&&NET&&NET.gc){try{NET.gc.send({t:'ping'})}catch(e){}if(NET.last&&Date.now()-NET.last>12000)onDisc()}},3000);
 function render(){const B=$('board');B.innerHTML='';const s=G.s,tg=G.sel!=null?G.lg.filter(m=>m.f===G.sel):[];
 for(let k=0;k<64;k++){const i=flip?63-k:k,d=document.createElement('div'),p=s.b[i];d.className='sq '+(((i>>3)+(i&7))%2?'d':'l');
  if(G.sel===i)d.classList.add('sel');const m=tg.find(m=>m.t===i);if(m)d.classList.add(p||m.ep?'ring':'dot');
  if(p)d.innerHTML=`<span class="pz ${p[0]}">${GL[p[1]]}&#xFE0E;</span>`;d.onclick=()=>click(i);B.appendChild(d)}
 const card=c=>{const m=M[MD[c]];return`<div id="pc-${c}" class="pc" style="border-left-color:${m[3]}"><b>${name(c)} · ${m[1]}</b><i id="t-${c}">${fmt(G.tl[c])}</i><small>${m[2]}</small></div>`};
 if(!$('pc-w'))$('lc').innerHTML=card(flip?'w':'b')+card(flip?'b':'w');for(const c of['w','b'])$('pc-'+c).classList.toggle('on',s.turn===c&&!G.over);
-$('status').textContent=G.msg||(inCheck(s,s.turn)?`${name(s.turn)} in check`:`${name(s.turn)} to move`);
+$('status').textContent=G.msg||(G.paused?'Connection lost. Waiting for reconnect…':inCheck(s,s.turn)?`${name(s.turn)} in check`:`${name(s.turn)} to move`);
 let h='';for(let k=0;k<G.log.length;k+=2)h+=`<div>${k/2+1}. ${G.log[k]} ${G.log[k+1]||''}</div>`;const L=$('log');L.innerHTML=h;L.scrollTop=L.scrollHeight}
 </script></body></html>
